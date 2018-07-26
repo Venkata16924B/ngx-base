@@ -3,15 +3,14 @@
  */
 const webpack = require('webpack');
 const helpers = require('./helpers');
-var path = require('path');
-var stringify = require('json-stringify');
+const path = require('path');
+const stringify = require('json-stringify');
 
 /**
  * Webpack Plugins
  */
 const CleanWebpackPlugin = require('clean-webpack-plugin');
-const MiniCssExtractPlugin = require('mini-css-extract-plugin');
-const HtmlWebpackPlugin = require('html-webpack-plugin');
+const ContextReplacementPlugin = require('webpack/lib/ContextReplacementPlugin');
 const OptimizeJsPlugin = require('optimize-js-plugin');
 
 /*
@@ -38,6 +37,13 @@ module.exports = {
    * See: http://webpack.github.io/docs/configuration.html#cache
    */
   //cache: false,
+
+  /**
+   * As of Webpack 4 we need to set the mode.
+   * Since this is a library and it uses gulp to build the library,
+   * we only have Test and Perf.
+   */
+  mode: 'development',
 
   /*
    * The entry point for the bundle
@@ -76,7 +82,15 @@ module.exports = {
       {
         test: /\.ts$/,
         enforce: 'pre',
-        use: 'tslint-loader',
+        use: [{
+          loader: 'tslint-loader',
+          options: {
+            emitErrors: false,
+            failOnHint: false,
+            resourcePath: 'src',
+            typeCheck: true,
+          }
+        }],
         exclude: [helpers.root('node_modules')]
       },
       {
@@ -95,9 +109,10 @@ module.exports = {
        */
       {
         test: /\.json$/,
-        use: ['json-loader']
-      },
-
+        type: "javascript/auto",
+        use: ['custom-json-loader'],
+        exclude: [helpers.root('src/index.html')]
+      }
     ]
   },
 
@@ -114,7 +129,13 @@ module.exports = {
      * See: https://webpack.github.io/docs/list-of-plugins.html#contextreplacementplugin
      * See: https://github.com/angular/angular/issues/11580
      */
-    new webpack.ContextReplacementPlugin(
+    new ContextReplacementPlugin(
+      // The (\\|\/) piece accounts for path separators in *nix and Windows
+      // /angular(\\|\/)core(\\|\/)@angular/,
+      /\@angular(\\|\/)core(\\|\/)fesm5/,
+      helpers.root('./src')
+    ),
+    new ContextReplacementPlugin(
       // The (\\|\/) piece accounts for path separators in *nix and Windows
       /angular(\\|\/)core(\\|\/)@angular/,
       helpers.root('./src')
@@ -131,35 +152,6 @@ module.exports = {
       sourceMap: false
     }),
 
-    new HtmlWebpackPlugin(),
-
-    new webpack.LoaderOptionsPlugin({
-      options: {
-        tslintLoader: {
-          emitErrors: false,
-          failOnHint: false
-        },
-
-       }
-    }),
-    // Reference: http://webpack.github.io/docs/list-of-plugins.html#noerrorsplugin
-    // Only emit files when there are no errors
-    new webpack.NoEmitOnErrorsPlugin(),
-
-    // // Reference: http://webpack.github.io/docs/list-of-plugins.html#dedupeplugin
-    // // Dedupe modules in the output
-    // new webpack.optimize.DedupePlugin(),
-
-    // Reference: http://webpack.github.io/docs/list-of-plugins.html#uglifyjsplugin
-    // Minify all javascript, switch loaders to minimizing mode
-    // new webpack.optimize.UglifyJsPlugin({sourceMap: true, mangle: { keep_fnames: true }}),
-
-    // Copy assets from the public folder
-    // Reference: https://github.com/kevlened/copy-webpack-plugin
-    // new CopyWebpackPlugin([{
-    //   from: helpers.root('src/public')
-    // }]),
-
     // Reference: https://github.com/johnagan/clean-webpack-plugin
     // Removes the bundle folder before the build
     new CleanWebpackPlugin(['bundles'], {
@@ -167,20 +159,29 @@ module.exports = {
       verbose: false,
       dry: false
       })
-    ],
+  ],
 
-    /**
-     * Include polyfills or mocks for various node stuff
-     * Description: Node configuration
-     *
-     * See: https://webpack.github.io/docs/configuration.html#node
-     */
-    node: {
-      global: true,
-      crypto: 'empty',
-      process: true,
-      module: false,
-      clearImmediate: false,
-      setImmediate: false
-    }
+  /**
+   * These common plugins were removed from Webpack 3 and are now set in this object.
+   */
+  optimization: {
+    namedModules: true, // NamedModulesPlugin()
+    noEmitOnErrors: true, // NoEmitOnErrorsPlugin
+    concatenateModules: true //ModuleConcatenationPlugin
+  },
+
+  /**
+   * Include polyfills or mocks for various node stuff
+   * Description: Node configuration
+   *
+   * See: https://webpack.github.io/docs/configuration.html#node
+   */
+  node: {
+    global: true,
+    crypto: 'empty',
+    process: true,
+    module: false,
+    clearImmediate: false,
+    setImmediate: false
+  }
 };
