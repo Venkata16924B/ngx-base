@@ -81,7 +81,7 @@
     "@ngtools/webpack": "6.1.0",
     "@types/core-js": "2.5.0",
     "@types/jasmine": "2.8.8",
-    "@types/lodash": "4.14.110",
+    "@types/lodash": "4.14.113",
     "ajv": "6.5.1",
     "angular2-template-loader": "0.6.2",
     "autoprefixer": "8.6.4",
