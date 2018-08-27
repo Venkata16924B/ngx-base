@@ -2,25 +2,63 @@
 const gulp = require('gulp'),
   autoprefixer = require('autoprefixer'),
   changed = require('gulp-changed'),
+  cssmin = require('gulp-cssmin'),
   del = require('del'),
   exec = require('child_process').exec,
-  ngc = require('gulp-ngc'),
+  gulpngc = require('gulp-ngc'),
+  fs = require("fs"),
+  htmlMinifier = require('html-minifier'),
+  lessCompiler = require('gulp-less'),
+  // ngc = require('@angular/compiler-cli/src/main').main,
   path = require('path'),
   postcss = require('postcss'),
-  replace = require('gulp-string-replace'),
-  runSequence = require('run-sequence'),
-  sourcemaps = require('gulp-sourcemaps'),
+  replace = require('gulp-replace'),
+  rename = require('gulp-rename');
+sourcemaps = require('gulp-sourcemaps'),
+  stylelint = require('gulp-stylelint'),
   stylus = require('stylus');
 
 const appSrc = 'src';
+const libraryBuild = 'build';
 const libraryDist = 'dist';
+const demoDist = 'dist-demo';
 const watchDist = 'dist-watch';
-const globalExcludes = [ '!./**/examples/**', '!./**/examples' ];
+const globalExcludes = [
+  '!./**/demo.*',
+  '!./**/demo/**',
+  '!./**/example',
+  '!./**/example/**'
+];
 
 /**
  * FUNCTION LIBRARY
  */
 
+// Copy example files to dist-demo (e.g., HTML and Typscript for docs)
+function copyExamples() {
+  return copyToDemo([
+    'src/**/example/*.*'
+  ]);
+}
+
+// Copy package files to dist
+function copyPkgFiles() {
+  return copyToDist([
+    './LICENSE.txt',
+    './README.md',
+    './package.json'
+  ]);
+}
+
+// Copy given files to demo directory
+function copyToDemo(srcArr) {
+  return gulp.src(srcArr)
+    .pipe(gulp.dest(function (file) {
+      return demoDist + file.base.slice(__dirname.length); // save directly to demo
+    }));
+}
+
+// Copy given files to dist directory
 function copyToDist(srcArr) {
   return gulp.src(srcArr.concat(globalExcludes))
     .pipe(gulp.dest(function (file) {
@@ -28,6 +66,176 @@ function copyToDist(srcArr) {
     }));
 }
 
+// Minify HTML templates
+function minifyTemplate(file) {
+  try {
+    let minifiedFile = htmlMinifier.minify(file, {
+      collapseWhitespace: true,
+      caseSensitive: true,
+      removeComments: true
+    });
+    return minifiedFile;
+  } catch (err) {
+    console.log(err);
+  }
+}
+
+// Build LESS
+function transpileLESS(src) {
+  return gulp.src(src)
+    .pipe(sourcemaps.init())
+    .pipe(lessCompiler({
+      paths: [ path.join(__dirname, 'less', 'includes') ]
+    }))
+    .pipe(sourcemaps.write())
+    .pipe(gulp.dest(function (file) {
+      return __dirname + file.base.slice(__dirname.length);
+    }));
+}
+
+// Build and minify LESS separately
+function transpileMinifyLESS(src) {
+  return gulp.src(src)
+    .pipe(sourcemaps.init())
+    .pipe(lessCompiler({
+      paths: [ path.join(__dirname, 'less', 'includes') ]
+    }))
+    .pipe(cssmin().on('error', function(err) {
+      console.log(err);
+    }))
+    .pipe(rename({suffix: '.min'}))
+    .pipe(sourcemaps.write())
+    .pipe(gulp.dest(function (file) {
+      return __dirname + file.base.slice(__dirname.length);
+    }));
+}
+
+/**
+ * LESS
+ */
+
+// Copy asset LESS to dist/less and replace relative paths for flattened directory
+function copyAssetsLess() {
+  return gulp.src(['./src/assets/stylesheets/*.less'])
+    .pipe(replace(/\.\.\/.\.\/.\.\//g, function () {
+      return '../../../../';
+    }))
+    .pipe(replace(/@import '\.\.\/\.\.\/.*\//g, function () {
+      return '@import \'';
+    }))
+    .pipe(rename({dirname: ''}))
+    .pipe(gulp.dest(libraryDist + '/dist/less'));
+}
+
+// Copy component LESS to dist/less in a flattened directory
+function copyLess() {
+  return gulp.src(['./src/app/**/*.less'].concat(globalExcludes))
+    .pipe(rename({dirname: ''}))
+    .pipe(gulp.dest(libraryDist + '/dist/less'));
+}
+
+/**
+ * CSS
+ */
+
+// Copy CSS to dist/css
+function copyCss() {
+  return gulp.src(['./src/assets/stylesheets/*.css'], {base: './src/assets/stylesheets'})
+    .pipe(gulp.dest(function (file) {
+      return libraryDist + '/dist/css' + file.base.slice(__dirname.length); // save directly to dist
+    }));
+}
+
+// Stylelint
+function lintCss() {
+  return gulp
+    .src(['./src/assets/stylesheets/*.less', './src/app/**/*.less'])
+    .pipe(stylelint({
+      failAfterError: true,
+      reporters: [
+        {formatter: 'string', console: true}
+      ]
+    }));
+}
+
+// Less compilation and minifiction
+function minCss() {
+  return transpileMinifyLESS(appSrc + '/assets/stylesheets/*.less');
+}
+
+// Less compilation
+function transpileLess() {
+  return transpileLESS(appSrc + '/assets/stylesheets/*.less');
+}
+
+/**
+ * Typescript
+ */
+
+// Inline HTML templates in component classes
+function inlineTemplate() {
+  return gulp.src(['./src/app/**/*.ts'].concat(globalExcludes), {base: './'})
+    .pipe(replace(/templateUrl.*\'/g, function (matched) {
+      let fileName = matched.match(/\/.*html/g).toString();
+      let dirName = this.file.relative.substring(0, this.file.relative.lastIndexOf('/'));
+      let fileContent = fs.readFileSync(dirName + fileName, "utf8");
+      return 'template: \`' + minifyTemplate(fileContent) + '\`';
+    }))
+    .pipe(gulp.dest(libraryBuild));
+}
+
+// Build the components
+function transpile() {
+  /**
+   * Stick with gulp-ngc v0.2.1 due to "function calls are not supported in decorators" issue
+   *
+   * See: https://github.com/angular/angular/issues/23609
+   * Related: https://github.com/dherges/ng-packagr/issues/727
+   *
+   * gulp-ngc v0.3.0 uses different args
+   * See: https://github.com/jolly-roger/gulp-ngc/issues/9
+   */
+  return gulpngc('tsconfig.json');
+}
+
+// Build with AOT enabled
+function transpileAot() {
+  // https://stackoverflow.com/questions/36897877/gulp-error-the-following-tasks-did-not-complete-did-you-forget-to-signal-async
+  return new Promise(function(resolve, reject) {
+    // Need to capture the exit code
+    exec('node_modules/.bin/ngc -p tsconfig-aot.json', function (err, stdout, stderr) {
+      console.log(stdout);
+      console.log(stderr);
+      if (err !== null) {
+        process.exit(1);
+      }
+    });
+    resolve();
+  });
+}
+
+/**
+ * Watch
+ */
+
+// Watch source
+function watch() {
+  gulp.watch([appSrc + '/app/**/*.ts', '!' + appSrc + '/app/**/*.spec.ts']).on('change', function (e) {
+    console.log('TypeScript file ' + e.path + ' has been changed. Compiling.');
+  });
+  gulp.watch([appSrc + '/app/**/*.less']).on('change', function (e) {
+    console.log(e.path + ' has been changed. Updating.');
+    transpileLESS(e.path);
+    updateWatchDist();
+  });
+  gulp.watch([appSrc + '/app/**/*.html']).on('change', function (e) {
+    console.log(e.path + ' has been changed. Updating.');
+    copyToDist(e.path);
+    updateWatchDist();
+  });
+}
+
+// Update watch dist directory
 function updateWatchDist() {
   return gulp
     .src([libraryDist + '/**'].concat(globalExcludes))
@@ -36,56 +244,24 @@ function updateWatchDist() {
 }
 
 /**
- * TASKS
+ * Tasks
  */
 
-// Put the LESS files back to normal
-gulp.task('build-library',
-  [
-    'transpile',
-    'post-transpile',
-    'copy-static-assets'
-  ]);
+const buildLessSeries = gulp.series(copyAssetsLess, copyLess);
+const buildCssSeries = gulp.series(lintCss, transpileLess, minCss, copyCss);
+const buildAotSeries = gulp.series(inlineTemplate, transpileAot);
+const copyExamplesSeries = gulp.series(copyExamples);
+const copyPkgFilesSeries = gulp.series(copyPkgFiles);
 
+const buildSeries = gulp.series(inlineTemplate, transpile, buildCssSeries, buildLessSeries, copyPkgFilesSeries);
+const updateWatchDistSeries = gulp.series(buildSeries, updateWatchDist);
+const watchSeries = gulp.series(updateWatchDistSeries, watch);
 
-gulp.task('transpile', function () {
-  // Stick with v0.2.1 due to "function calls are not supported in decorators" issue
-  // See: https://github.com/angular/angular/issues/23609
-  // See: https://github.com/dherges/ng-packagr/issues/727
-
-  // Change for v0.3.0 https://github.com/filipesilva/angular-quickstart-lib/issues/61
-  // return ngc(['--project', 'tsconfig.json']);
-  return ngc('tsconfig.json');
-});
-
-// require transpile to finish before the build starts the post-transpile task
-gulp.task('post-transpile', ['transpile'], function () {
-  return gulp.src(['dist/src/app/**/*.js'])
-    .pipe(replace(/templateUrl:\s/g, "template: require("))
-    .pipe(gulp.dest(function (file) {
-      return file.base; // because of Angular's encapsulation, it's natural to save the css where the less-file was
-    }));
-});
-
-gulp.task('copy-static-assets', function () {
-  return gulp.src([
-    'LICENSE',
-    'README.md',
-    'package.json',
-  ])
-    .pipe(gulp.dest(libraryDist));
-});
-
-gulp.task('copy-watch', ['post-transpile'], function() {
-  return updateWatchDist();
-});
-
-gulp.task('copy-watch-all', ['build-library'], function() {
-  return updateWatchDist();
-});
-
-gulp.task('watch', ['build-library', 'copy-watch-all'], function () {
-  gulp.watch([appSrc + '/app/**/*.ts', '!' + appSrc + '/app/**/*.spec.ts'], ['transpile', 'post-transpile', 'copy-watch']).on('change', function (e) {
-    console.log('TypeScript file ' + e.path + ' has been changed. Compiling.');
-  });
-});
+gulp.task('build', buildSeries);
+gulp.task('build-aot', buildAotSeries);
+gulp.task('build-css', buildCssSeries);
+gulp.task('build-less', buildLessSeries);
+gulp.task('copy-examples', copyExamplesSeries);
+gulp.task('copy-pkg-files', copyPkgFilesSeries);
+gulp.task('watch', watchSeries);
+gulp.task('update-watch-dist', updateWatchDistSeries);

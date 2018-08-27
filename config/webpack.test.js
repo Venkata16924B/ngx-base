@@ -9,30 +9,27 @@ const stringify = require('json-stringify');
 /**
  * Webpack Plugins
  */
-const webpack = require('webpack');
-const ProvidePlugin = require('webpack/lib/ProvidePlugin');
+const CleanWebpackPlugin = require('clean-webpack-plugin');
 const ContextReplacementPlugin = require('webpack/lib/ContextReplacementPlugin');
 const DefinePlugin = require('webpack/lib/DefinePlugin');
-const LoaderOptionsPlugin = require('webpack/lib/LoaderOptionsPlugin');
 /**
  * Webpack Constants
  */
 const ENV = process.env.ENV = process.env.NODE_ENV = 'test';
-const API_URL = process.env.API_URL || (ENV == 'inmemory'?'app/':'http://localhost:8080/api/');
+const API_URL = process.env.API_URL || (ENV === 'inmemory'?'app/':'http://localhost:8080/api/');
 const FABRIC8_WIT_API_URL = process.env.FABRIC8_WIT_API_URL;
 const FABRIC8_RECOMMENDER_API_URL = process.env.FABRIC8_RECOMMENDER_API_URL || 'http://api-bayesian.dev.rdu2c.fabric8.io/api/v1/';
 
-/**
- * Webpack configuration
- *
- * See: http://webpack.github.io/docs/configuration.html#cli
- */
 module.exports = function () {
-  return {
-
-    entry: {
-      'app': './index.ts'
-    },
+   return {
+    /**
+     * Cache generated modules and chunks to improve performance for multiple incremental builds.
+     * This is enabled by default in watch mode.
+     * You can pass false to disable it.
+     *
+     * See: http://webpack.github.io/docs/configuration.html#cache
+     */
+    //cache: false,
 
     /**
      * As of Webpack 4 we need to set the mode.
@@ -49,26 +46,31 @@ module.exports = function () {
      */
     devtool: 'inline-source-map',
 
+    entry: {
+      'polyfills': './src/polyfills.ts',
+      'vendor': './src/vendor.ts',
+      'app': './src/main.ts'
+    },
+
     /**
      * Options affecting the resolving of modules.
      *
-     * See: http://webpack.github.io/docs/configuration.html#resolve
+     * See: https://webpack.js.org/configuration/resolve
      */
     resolve: {
 
       /**
-       * An array of extensions that should be used to resolve modules.
+       * An array that automatically resolve certain extensions.
+       * Which is what enables users to leave off the extension when importing.
        *
-       * See: http://webpack.github.io/docs/configuration.html#resolve-extensions
+       * See: https://webpack.js.org/configuration/resolve/#resolve-extensions
        */
-      extensions: ['.ts', '.js']
+      extensions: ['.webpack.js', '.ts', '.js', '.json']
     },
 
-    /**
-     * Options affecting the normal modules.
-     *
-     * See: http://webpack.github.io/docs/configuration.html#module
-     */
+    // require those dependencies but don't bundle them
+    // externals: [/^@angular\//, /^rxjs\//],
+
     module: {
       /**
        * An array of automatically applied loaders.
@@ -86,25 +88,46 @@ module.exports = function () {
          *
          * See: https://github.com/webpack/source-map-loader
          */
+        {
+          test: /\.js$/,
+          use: ['source-map-loader'],
+          exclude: [
+            // these packages have problems with their sourcemaps
+            helpers.root('node_modules/rxjs'),
+            helpers.root('node_modules/@angular')
+          ]
+        },
+
         // {
-        //   test: /\.js$/,
-        //   use: ['source-map-loader'],
+        //   test: /\.ts$/,
+        //   enforce: 'pre',
+        //   use: [{
+        //     loader: 'tslint-loader',
+        //     options: {
+        //       configFile: "tslint.json",
+        //       tsConfigFile: 'tsconfig.json',
+        //       formattersDirectory: 'node_modules/tslint-loader/formatters/',
+        //       formatter: 'custom',
+        //       emitErrors: false,
+        //       failOnHint: true,
+        //       resourcePath: 'src',
+        //       typeCheck: true,
+        //     }
+        //   }],
         //   exclude: [
-        //     // these packages have problems with their sourcemaps
-        //     helpers.root('node_modules/rxjs'),
-        //     helpers.root('node_modules/@angular')
+        //     helpers.root('node_modules')
         //   ]
         // },
 
-        /**
-         * Typescript loader support for .ts and Angular 2 async routes via .async.ts
-         *
-         * See: https://github.com/s-panferov/awesome-typescript-loader
-         */
         {
           test: /\.ts$/,
           use: [
-            'ts-loader',
+            {
+              loader: 'ts-loader',
+              options: {
+                configFile: 'tsconfig-test.json'
+              }
+            },
             'angular2-template-loader'
           ],
           exclude: [/\.e2e\.ts$/]
@@ -118,11 +141,40 @@ module.exports = function () {
         {
           test: /\.json$/,
           type: "javascript/auto",
-          use: ['custom-json-loader'],
+          use: ['json-loader'],
           exclude: [helpers.root('src/index.html')]
         },
 
-      /**
+        /**
+         *  File loader for supporting fonts, for example, in CSS files.
+         */
+        {
+          test: /\.woff2?$|\.ttf$|\.eot$|\.svg$/,
+          use: [
+            {
+              loader: "url-loader",
+              options: {
+                limit: 3000,
+                includePaths: [
+                  path.resolve(__dirname, "../node_modules/patternfly/dist/fonts/")
+                ],
+                name: 'assets/fonts/[name].[hash].[ext]'
+              }
+            }
+          ]
+        }, {
+          test: /\.jpg$|\.png$|\.gif$|\.jpeg$/,
+          use: {
+            loader: "url-loader",
+            options: {
+              limit: 3000,
+              name: 'assets/fonts/[name].[hash].[ext]'
+            }
+          },
+          exclude: path.resolve(__dirname, "../node_modules/patternfly/dist/fonts/")
+        },
+
+        /**
          * Instruments JS files with Istanbul for subsequent code coverage reporting.
          * Instrument only testing sources.
          *
@@ -131,9 +183,11 @@ module.exports = function () {
         {
           enforce: 'post',
           test: /\.(js|ts)$/,
-          loader: 'istanbul-instrumenter-loader',
-          query: {
-            esModules: true
+          use: {
+            loader: 'istanbul-instrumenter-loader',
+            options: {
+              esModules: true
+            }
           },
           include: helpers.root('src'),
           exclude: [
@@ -150,7 +204,6 @@ module.exports = function () {
      * See: http://webpack.github.io/docs/configuration.html#plugins
      */
     plugins: [
-
       /**
        * Plugin: DefinePlugin
        * Description: Define free variables.
@@ -199,11 +252,11 @@ module.exports = function () {
      * See: https://webpack.github.io/docs/configuration.html#node
      */
     node: {
-      global: true,
-      process: false,
-      crypto: 'empty',
-      module: false,
       clearImmediate: false,
+      crypto: 'empty',
+      global: true,
+      module: false,
+      process: false,
       setImmediate: false
     }
   };
