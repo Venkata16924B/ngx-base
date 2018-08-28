@@ -96,7 +96,7 @@ function create_merge_PR {
     curl --silent -X PUT -H "Authorization: Bearer $GH_TOKEN" "${apiUrl}"
 }
 
-# Updates ngx-launcher's version in package.json file
+# Updates ngx-base's version in package.json file
 function updatePackageJSONVersion {
     local f="package.json"
     local p="ngx-base"
