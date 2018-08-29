@@ -36,7 +36,6 @@ function set_branch_to_master() {
   git remote -v
 }
 
-
 # This function raises a PR against fabric8-npm-dependencies
 function create_merge_PR {
     # Fetch latest tags
