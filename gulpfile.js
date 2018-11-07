@@ -13,8 +13,8 @@ const gulp = require('gulp'),
   path = require('path'),
   postcss = require('postcss'),
   replace = require('gulp-replace'),
-  rename = require('gulp-rename');
-sourcemaps = require('gulp-sourcemaps'),
+  rename = require('gulp-rename'),
+  sourcemaps = require('gulp-sourcemaps'),
   stylelint = require('gulp-stylelint'),
   stylus = require('stylus');
 
